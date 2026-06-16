@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS activities (
   venue TEXT NOT NULL,
   show_time TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'upcoming',
+  type TEXT NOT NULL DEFAULT 'normal',
+  priority INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT ''
 );
 
@@ -84,6 +86,15 @@ CREATE TABLE IF NOT EXISTS seats (
   status TEXT NOT NULL DEFAULT 'available',
   locked_by TEXT,
   locked_at TEXT,
+  seat_type TEXT NOT NULL DEFAULT 'normal',
+  group_type TEXT,
+  group_id TEXT,
+  block_reason TEXT,
+  needs_manual INTEGER NOT NULL DEFAULT 0,
+  adjacent_group_id TEXT,
+  original_order_id TEXT,
+  guest_issued_by TEXT,
+  guest_issued_at TEXT,
   UNIQUE(activity_id, area, row_num, col_num)
 );
 
@@ -98,6 +109,10 @@ CREATE TABLE IF NOT EXISTS groups (
   refund_rule TEXT NOT NULL DEFAULT 'before_show',
   status TEXT NOT NULL DEFAULT 'forming',
   formed_at TEXT,
+  type TEXT NOT NULL DEFAULT 'normal',
+  reserved_seats INTEGER NOT NULL DEFAULT 0,
+  priority INTEGER NOT NULL DEFAULT 0,
+  blockbuster_company TEXT,
   created_at TEXT DEFAULT ''
 );
 
@@ -111,6 +126,8 @@ CREATE TABLE IF NOT EXISTS orders (
   status TEXT NOT NULL DEFAULT 'pending_payment',
   paid_at TEXT,
   ticket_id TEXT,
+  adjacent_group_id TEXT,
+  is_adjacent_break INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT ''
 );
 
@@ -198,6 +215,24 @@ export async function initDatabase() {
     for (const stmt of statements) {
       if (stmt.trim()) db.run(stmt);
     }
+  } else {
+    try { db.exec("ALTER TABLE activities ADD COLUMN type TEXT NOT NULL DEFAULT 'normal'"); } catch (e) {}
+    try { db.exec("ALTER TABLE activities ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN seat_type TEXT NOT NULL DEFAULT 'normal'"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN group_type TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN group_id TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN block_reason TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN needs_manual INTEGER NOT NULL DEFAULT 0"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN adjacent_group_id TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN original_order_id TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN guest_issued_by TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE seats ADD COLUMN guest_issued_at TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE groups ADD COLUMN type TEXT NOT NULL DEFAULT 'normal'"); } catch (e) {}
+    try { db.exec("ALTER TABLE groups ADD COLUMN reserved_seats INTEGER NOT NULL DEFAULT 0"); } catch (e) {}
+    try { db.exec("ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"); } catch (e) {}
+    try { db.exec("ALTER TABLE groups ADD COLUMN blockbuster_company TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE orders ADD COLUMN adjacent_group_id TEXT"); } catch (e) {}
+    try { db.exec("ALTER TABLE orders ADD COLUMN is_adjacent_break INTEGER NOT NULL DEFAULT 0"); } catch (e) {}
   }
 
   setInterval(() => { wrapper.save(); }, 5000);

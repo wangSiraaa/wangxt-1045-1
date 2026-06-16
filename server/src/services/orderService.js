@@ -2,6 +2,8 @@ import db from '../db.js';
 import { v4 as uuid } from 'uuid';
 import { validateOrderTransition, canRefund } from '../stateMachine.js';
 import { lockSeat, unlockSeat } from '../seatLock.js';
+import * as adjacentSeatService from './adjacentSeatService.js';
+import * as seatConflictService from './seatConflictService.js';
 
 function logState(entityType, entityId, fromState, toState, operator, reason) {
   db.prepare(`INSERT INTO state_log (entity_type, entity_id, from_state, to_state, operator, reason) VALUES (?, ?, ?, ?, ?, ?)`).run(entityType, entityId, fromState, toState, operator, reason);
@@ -127,11 +129,13 @@ export function requestRefund(id, reason, showTime, refundRule) {
     if (!cancelResult.valid) throw new Error(result.error);
   }
 
+  const adjacentCheck = adjacentSeatService.processRefundWithAdjacentCheck(id, order.user_name);
+
   const refundId = uuid();
   db.prepare("INSERT INTO refunds (id, order_id, amount, reason, status) VALUES (?, ?, ?, ?, 'pending')").run(refundId, id, order.amount, reason || 'user request');
   db.prepare("UPDATE orders SET status = 'refunding' WHERE id = ?").run(id);
   logState('order', id, order.status, 'refunding', order.user_name, reason || 'refund request');
-  return { refundId, order: getById(id) };
+  return { refundId, order: getById(id), adjacentCheck };
 }
 
 export function completeRefund(id) {
@@ -146,7 +150,12 @@ export function completeRefund(id) {
   db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(id);
   if (order.seat_id) {
     unlockSeat(order.seat_id, id);
-    db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
+    const seat = db.prepare("SELECT * FROM seats WHERE id = ?").get(order.seat_id);
+    if (seat && seat.block_reason) {
+      db.prepare("UPDATE seats SET status = 'blocked' WHERE id = ?").run(order.seat_id);
+    } else if (seat) {
+      db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
+    }
   }
   logState('order', id, 'refunding', 'refunded', 'finance', 'refund completed');
   return getById(id);

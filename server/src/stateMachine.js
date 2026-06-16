@@ -2,6 +2,27 @@ const GROUP_TRANSITIONS = {
   forming: {
     cancel: { to: 'cancelled', operator: 'leader' },
     check_formed: { to: 'grouped', operator: 'system' },
+    deadline_passed: { to: 'failed', operator: 'system' },
+    blockbuster_auto_form: { to: 'grouped', operator: 'system' }
+  },
+  grouped: {
+    issue_tickets: { to: 'ticket_issued', operator: 'system' },
+    cancel: { to: 'cancelled', operator: 'leader' }
+  },
+  ticket_issued: {},
+  failed: {
+    auto_refund: { to: 'refunded', operator: 'system' }
+  },
+  cancelled: {
+    auto_refund: { to: 'refunded', operator: 'system' }
+  },
+  refunded: {}
+};
+
+const BLOCKBUSTER_GROUP_TRANSITIONS = {
+  forming: {
+    cancel: { to: 'cancelled', operator: 'leader' },
+    blockbuster_auto_form: { to: 'grouped', operator: 'system' },
     deadline_passed: { to: 'failed', operator: 'system' }
   },
   grouped: {
@@ -57,8 +78,9 @@ function validateTransition(transitionMap, currentState, action) {
   return { valid: true, nextState: transition.to, operator: transition.operator };
 }
 
-export function validateGroupTransition(currentState, action) {
-  return validateTransition(GROUP_TRANSITIONS, currentState, action);
+export function validateGroupTransition(currentState, action, groupType = 'normal') {
+  const transitionMap = groupType === 'blockbuster' ? BLOCKBUSTER_GROUP_TRANSITIONS : GROUP_TRANSITIONS;
+  return validateTransition(transitionMap, currentState, action);
 }
 
 export function validateOrderTransition(currentState, action) {
@@ -74,4 +96,4 @@ export function canRefund(orderStatus, refundRule, showTime) {
   return true;
 }
 
-export { GROUP_TRANSITIONS, ORDER_TRANSITIONS };
+export { GROUP_TRANSITIONS, BLOCKBUSTER_GROUP_TRANSITIONS, ORDER_TRANSITIONS };

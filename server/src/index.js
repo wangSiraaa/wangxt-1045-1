@@ -14,6 +14,9 @@ import ticketsRouter from './routes/tickets.js';
 import verificationsRouter from './routes/verifications.js';
 import reconciliationsRouter from './routes/reconciliations.js';
 import stateLogRouter from './routes/stateLog.js';
+import blockbusterRouter from './routes/blockbuster.js';
+import seatConflictsRouter from './routes/seatConflicts.js';
+import manualAdjustRouter from './routes/manualAdjust.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,6 +38,9 @@ async function start() {
   app.use('/api/verifications', verificationsRouter);
   app.use('/api/reconciliations', reconciliationsRouter);
   app.use('/api/state-log', stateLogRouter);
+  app.use('/api/blockbuster', blockbusterRouter);
+  app.use('/api/seat-conflicts', seatConflictsRouter);
+  app.use('/api/manual-adjust', manualAdjustRouter);
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   app.use(express.static(clientDist));

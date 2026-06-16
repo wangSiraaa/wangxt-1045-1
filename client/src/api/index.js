@@ -76,4 +76,28 @@ export const api = {
     },
     stats: () => request('/state-log/stats'),
   },
+  blockbuster: {
+    list: () => request('/blockbuster'),
+    create: (data) => request('/blockbuster', { method: 'POST', body: data }),
+    reserveGuests: (groupId, data) => request(`/blockbuster/${groupId}/reserve-guests`, { method: 'POST', body: data }),
+    issueGuestTicket: (data) => request('/blockbuster/issue-guest-ticket', { method: 'POST', body: data }),
+    bulkOccupy: (groupId, data) => request(`/blockbuster/${groupId}/bulk-occupy`, { method: 'POST', body: data }),
+    getStats: (activityId) => request(`/blockbuster/stats/activity/${activityId}`),
+  },
+  seatConflicts: {
+    listByActivity: (activityId) => request(`/seat-conflicts/activity/${activityId}`),
+    listByRow: (activityId, rowNum) => request(`/seat-conflicts/activity/${activityId}/row/${rowNum}`),
+    resolve: (seatId, data) => request(`/seat-conflicts/${seatId}/resolve`, { method: 'POST', body: data }),
+    batchResolve: (data) => request('/seat-conflicts/batch-resolve', { method: 'POST', body: data }),
+  },
+  manualAdjust: {
+    listOrders: (params) => {
+      const qs = new URLSearchParams(params).toString();
+      return request(`/manual-adjust/orders${qs ? '?' + qs : ''}`);
+    },
+    listBlockedSeats: (activityId) => request(`/manual-adjust/blocked-seats/activity/${activityId}`),
+    adjust: (data) => request('/manual-adjust/adjust', { method: 'POST', body: data }),
+    releaseBlockedSeat: (seatId, data) => request(`/manual-adjust/${seatId}/release`, { method: 'POST', body: data }),
+    listBlockedReasons: () => request('/manual-adjust/blocked-reasons'),
+  },
 };
