@@ -1,0 +1,15 @@
+{
+  "name": "ticket-group-buy",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd server && node src/seed.js && cd .. && concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && node src/index.js",
+    "dev:client": "cd client && npx vite --host",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "seed": "cd server && node src/seed.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
