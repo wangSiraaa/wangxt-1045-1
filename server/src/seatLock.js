@@ -61,7 +61,34 @@ export function unlockSeat(seatId, orderId) {
     seatLocks.delete(seatId);
     return true;
   }
+  if (existing) {
+    const order = db.prepare("SELECT status FROM orders WHERE id = ?").get(orderId);
+    if (order && ['payment_failed', 'cancelled', 'refunded'].includes(order.status)) {
+      seatLocks.delete(seatId);
+      return true;
+    }
+  }
   return false;
+}
+
+export function forceUnlockSeat(seatId) {
+  const existing = seatLocks.get(seatId);
+  if (existing) {
+    seatLocks.delete(seatId);
+    return { success: true, releasedOrderId: existing.orderId };
+  }
+  return { success: false, reason: 'no_lock_found' };
+}
+
+export function unlockSeatsByOrderId(orderId) {
+  const released = [];
+  for (const [seatId, lock] of seatLocks) {
+    if (lock.orderId === orderId) {
+      seatLocks.delete(seatId);
+      released.push(seatId);
+    }
+  }
+  return released;
 }
 
 export function isSeatLocked(seatId) {

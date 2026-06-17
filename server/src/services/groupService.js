@@ -1,7 +1,7 @@
 import db from '../db.js';
 import { v4 as uuid } from 'uuid';
 import { validateGroupTransition, canRefund } from '../stateMachine.js';
-import { lockSeat, unlockSeat } from '../seatLock.js';
+import { lockSeat, unlockSeat, forceUnlockSeat, unlockSeatsByOrderId } from '../seatLock.js';
 import * as seatConflictService from './seatConflictService.js';
 import * as adjacentSeatService from './adjacentSeatService.js';
 
@@ -94,18 +94,27 @@ export function cancelGroup(id, operatorName) {
   db.prepare("UPDATE groups SET status = 'cancelled' WHERE id = ?").run(id);
   logState('group', id, group.status, 'cancelled', operatorName, 'leader cancelled');
 
-  const orders = db.prepare("SELECT * FROM orders WHERE group_id = ? AND status IN ('pending_payment', 'paid')").all(id);
+  const orders = db.prepare("SELECT * FROM orders WHERE group_id = ? AND status IN ('pending_payment', 'paid', 'payment_failed')").all(id);
   for (const order of orders) {
     if (order.status === 'paid') {
       db.prepare("UPDATE orders SET status = 'refunding' WHERE id = ?").run(order.id);
       logState('order', order.id, 'paid', 'refunding', 'system', 'group cancelled, refund needed');
-    } else {
+    } else if (order.status === 'pending_payment') {
       db.prepare("UPDATE orders SET status = 'cancelled' WHERE id = ?").run(order.id);
       if (order.seat_id) {
-        unlockSeat(order.seat_id, order.id);
+        forceUnlockSeat(order.seat_id);
+        unlockSeatsByOrderId(order.id);
         db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
       }
       logState('order', order.id, 'pending_payment', 'cancelled', 'system', 'group cancelled');
+    } else if (order.status === 'payment_failed') {
+      db.prepare("UPDATE orders SET status = 'cancelled' WHERE id = ?").run(order.id);
+      if (order.seat_id) {
+        forceUnlockSeat(order.seat_id);
+        unlockSeatsByOrderId(order.id);
+        db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
+      }
+      logState('order', order.id, 'payment_failed', 'cancelled', 'system', 'group cancelled');
     }
   }
 
@@ -211,7 +220,8 @@ export function processFailedGroupRefunds(id) {
     db.prepare("INSERT INTO refunds (id, order_id, amount, reason, status) VALUES (?, ?, ?, 'group_failed_auto_refund', 'completed')").run(refundId, order.id, order.amount);
     db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(order.id);
     if (order.seat_id) {
-      unlockSeat(order.seat_id, order.id);
+      forceUnlockSeat(order.seat_id);
+      unlockSeatsByOrderId(order.id);
       db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
     }
     logState('order', order.id, order.status, 'refunded', 'system', 'auto refund for failed group');

@@ -1,12 +1,19 @@
 import db from '../db.js';
 import { v4 as uuid } from 'uuid';
 import { validateOrderTransition, canRefund } from '../stateMachine.js';
-import { lockSeat, unlockSeat } from '../seatLock.js';
+import { lockSeat, unlockSeat, forceUnlockSeat, unlockSeatsByOrderId } from '../seatLock.js';
 import * as adjacentSeatService from './adjacentSeatService.js';
 import * as seatConflictService from './seatConflictService.js';
 
 function logState(entityType, entityId, fromState, toState, operator, reason) {
   db.prepare(`INSERT INTO state_log (entity_type, entity_id, from_state, to_state, operator, reason) VALUES (?, ?, ?, ?, ?, ?)`).run(entityType, entityId, fromState, toState, operator, reason);
+}
+
+function releaseSeatForOrder(order) {
+  if (!order.seat_id) return;
+  forceUnlockSeat(order.seat_id);
+  unlockSeatsByOrderId(order.id);
+  db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
 }
 
 export function createOrder({ group_id, user_name, user_phone, seat_id }) {
@@ -20,19 +27,15 @@ export function createOrder({ group_id, user_name, user_phone, seat_id }) {
     if (seat.status !== 'available' && seat.status !== 'locked') throw new Error(`Seat status is ${seat.status}, cannot select`);
     if (seat.area !== group.area) throw new Error('Seat area does not match group area');
 
-    const orderId = uuid();
-    const locked = lockSeat(seat_id, orderId);
-    if (!locked) throw new Error('Seat is currently locked by another user');
-
-    const existingOrder = db.prepare("SELECT id FROM orders WHERE seat_id = ? AND status NOT IN ('cancelled', 'refunded')").get(seat_id);
-    if (existingOrder) {
-      unlockSeat(seat_id, orderId);
-      throw new Error('Seat already occupied by another order');
-    }
-
-    db.prepare("UPDATE seats SET status = 'locked', locked_by = ?, locked_at = datetime('now') WHERE id = ?").run(orderId, seat_id);
+    const existingOrder = db.prepare("SELECT id FROM orders WHERE seat_id = ? AND status NOT IN ('cancelled', 'refunded', 'payment_failed')").get(seat_id);
+    if (existingOrder) throw new Error('Seat already occupied by another order');
 
     const id = uuid();
+    const locked = lockSeat(seat_id, id);
+    if (!locked) throw new Error('Seat is currently locked by another user');
+
+    db.prepare("UPDATE seats SET status = 'locked', locked_by = ?, locked_at = datetime('now') WHERE id = ?").run(id, seat_id);
+
     db.prepare("INSERT INTO orders (id, group_id, user_name, user_phone, seat_id, amount, status) VALUES (?, ?, ?, ?, ?, ?, 'pending_payment')").run(id, group_id, user_name, user_phone, seat_id, seat.price);
     logState('order', id, null, 'pending_payment', user_name, 'create order with seat');
     return db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
@@ -86,8 +89,7 @@ export function paymentTimeout(id) {
 
   db.prepare("UPDATE orders SET status = 'payment_failed' WHERE id = ?").run(id);
   if (order.seat_id) {
-    unlockSeat(order.seat_id, id);
-    db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
+    releaseSeatForOrder(order);
   }
   logState('order', id, 'pending_payment', 'payment_failed', 'system', 'payment timeout');
   return getById(id);
@@ -101,13 +103,23 @@ export function retryPayment(id) {
   if (!result.valid) throw new Error(result.error);
 
   if (order.seat_id) {
+    forceUnlockSeat(order.seat_id);
+    unlockSeatsByOrderId(id);
+
     const seat = db.prepare('SELECT * FROM seats WHERE id = ?').get(order.seat_id);
-    if (seat && seat.status === 'available') {
-      const locked = lockSeat(order.seat_id, id);
-      if (locked) {
-        db.prepare("UPDATE seats SET status = 'locked', locked_by = ?, locked_at = datetime('now') WHERE id = ?").run(id, order.seat_id);
-      }
+    if (seat && seat.status === 'sold') {
+      throw new Error('Seat already sold to another person, cannot retry');
     }
+
+    const conflictOrder = db.prepare("SELECT id FROM orders WHERE seat_id = ? AND id != ? AND status NOT IN ('cancelled', 'refunded', 'payment_failed')").get(order.seat_id, id);
+    if (conflictOrder) {
+      throw new Error('Seat already occupied by another active order, cannot retry');
+    }
+
+    const locked = lockSeat(order.seat_id, id);
+    if (!locked) throw new Error('Seat is currently locked by another user, cannot retry');
+
+    db.prepare("UPDATE seats SET status = 'locked', locked_by = ?, locked_at = datetime('now') WHERE id = ?").run(id, order.seat_id);
   }
 
   db.prepare("UPDATE orders SET status = 'pending_payment' WHERE id = ?").run(id);
@@ -149,13 +161,7 @@ export function completeRefund(id) {
   }
   db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(id);
   if (order.seat_id) {
-    unlockSeat(order.seat_id, id);
-    const seat = db.prepare("SELECT * FROM seats WHERE id = ?").get(order.seat_id);
-    if (seat && seat.block_reason) {
-      db.prepare("UPDATE seats SET status = 'blocked' WHERE id = ?").run(order.seat_id);
-    } else if (seat) {
-      db.prepare("UPDATE seats SET status = 'available', locked_by = NULL, locked_at = NULL WHERE id = ?").run(order.seat_id);
-    }
+    releaseSeatForOrder(order);
   }
   logState('order', id, 'refunding', 'refunded', 'finance', 'refund completed');
   return getById(id);
